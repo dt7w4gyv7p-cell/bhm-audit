@@ -617,7 +617,9 @@ function findSku(code) {
   return null;
 }
 function jumpToSku(code) {
-  var r=findSku(code); if(!r){ toast('No match: '+code); return false; }
+  var raw=String(code||'').trim();
+  var chopped=raw.length>1?raw.slice(0,-1):raw;
+  var r=findSku(code); if(!r){ toast('Not in workbook: '+chopped); return false; }
   ST.fSearch=''; ST.fStatus=''; ST.ci=0;
   document.getElementById('srch').value='';
   document.querySelectorAll('.fp').forEach(function(p){ p.classList.toggle('on',p.getAttribute('data-st')===''); });
