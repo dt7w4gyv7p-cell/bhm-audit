@@ -146,9 +146,19 @@ body{display:flex;flex-direction:column;height:100vh;height:100dvh}
 /* TOAST */
 .toast{position:fixed;bottom:calc(80px + var(--sb));left:50%;transform:translateX(-50%) translateY(12px);background:#1a2b1c;color:#fff;padding:10px 20px;border-radius:99px;font-size:14px;font-weight:600;z-index:99999;opacity:0;transition:all .2s;white-space:nowrap;pointer-events:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.mini-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.ms{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px 6px;text-align:center}
+.msv{display:block;font-size:20px;font-weight:700;font-family:"DM Mono",monospace;line-height:1}
+.msv.g{color:var(--g)}.msv.r{color:var(--red)}.msv.a{color:var(--amber)}
+.msl{display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
 .empty{text-align:center;padding:48px 20px;color:var(--hint)}
 .empty i{font-size:48px;display:block;margin-bottom:12px;opacity:.4}
 .empty p{font-size:16px;margin:0;font-weight:600}
+.mini-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.ms{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px 6px;text-align:center}
+.msv{display:block;font-size:20px;font-weight:700;font-family:"DM Mono",monospace;line-height:1}
+.msv.g{color:var(--g)}.msv.r{color:var(--red)}.msv.a{color:var(--amber)}
+.msl{display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
 </style>
 </head>
 <body>
@@ -186,6 +196,12 @@ body{display:flex;flex-direction:column;height:100vh;height:100dvh}
 
   <!-- AUDIT -->
   <div class="pg" id="pg-audit">
+    <div class="mini-stats">
+      <div class="ms"><span class="msv g" id="statStock">0</span><span class="msl">In Stock</span></div>
+      <div class="ms"><span class="msv r" id="statOut">0</span><span class="msl">Out</span></div>
+      <div class="ms"><span class="msv a" id="statOpen">0</span><span class="msl">Left</span></div>
+      <div class="ms"><span class="msv" id="statPct">0%</span><span class="msl">Done</span></div>
+    </div>
     <div class="search-wrap">
       <i class="ti ti-search si-icon"></i>
       <input type="search" class="si" id="srch" placeholder="Search SKU, brand, item..." oninput="onSearch()" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
@@ -306,15 +322,24 @@ function getStats() {
   return {total:MASTER.length, stock:stock, out:out, open:open};
 }
 
+function setEl(id, val, prop) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (prop === 'width') el.style.width = val;
+  else el.textContent = val;
+}
 function renderStats() {
   var s = getStats();
-  var el;
-  el = document.getElementById('kStock'); if(el) el.textContent = s.stock;
-  el = document.getElementById('kOut');   if(el) el.textContent = s.out;
-  el = document.getElementById('kOpen');  if(el) el.textContent = s.open;
   var pct = Math.round((s.stock + s.out) / s.total * 100);
-  el = document.getElementById('ppct');   if(el) el.textContent = pct + '%';
-  el = document.getElementById('pfill');  if(el) el.style.width = pct + '%';
+  setEl('kStock', s.stock);
+  setEl('kOut', s.out);
+  setEl('kOpen', s.open);
+  setEl('ppct', pct + '%');
+  setEl('pfill', pct + '%', 'width');
+  setEl('statStock', s.stock);
+  setEl('statOut', s.out);
+  setEl('statOpen', s.open);
+  setEl('statPct', pct + '%');
 }
 
 function escHtml(s) {
