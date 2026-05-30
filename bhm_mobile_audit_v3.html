@@ -265,6 +265,7 @@ const KEY = 'bhm-audit-v3';
 let ST = {month:'', audits:{}, ci:0, curPg:'overview', fSearch:'', fStatus:'', aExp:{}};
 let filtered = [];
 let scanStream = null, scanTimer = null, qrInst = null;
+var _vendorList = [];
 
 function load() {
   try { var raw = localStorage.getItem(KEY); if (raw) Object.assign(ST, JSON.parse(raw)); } catch(e) {}
@@ -276,7 +277,7 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch(e
 function af(sku) {
   var m = ST.month;
   if (!ST.audits[m]) ST.audits[m] = {};
-  if (!ST.audits[m][sku]) ST.audits[m][sku] = {status:'Not Reviewed',notes:''};
+  if (!ST.audits[m][sku]) ST.audits[m][sku] = {status:'Not Reviewed', notes:''};
   return ST.audits[m][sku];
 }
 var toastTm;
@@ -295,30 +296,31 @@ function confirmMonth() {
 function updateMonthBtn() { document.getElementById('monthBtn').textContent = ST.month || '--'; }
 
 function getStats() {
-  var m = ST.month, au = ST.audits[m] || {}, stock=0, order=0, open=0;
+  var m = ST.month, au = ST.audits[m] || {}, stock=0, out=0, open=0;
   for (var i=0; i<MASTER.length; i++) {
     var a = au[MASTER[i].SKU];
     if (!a || a.status === 'Not Reviewed') open++;
     else if (a.status === 'In Stock') stock++;
-    else order++;
+    else out++;
   }
-  return {total:MASTER.length, stock:stock, order:order, open:open};
+  return {total:MASTER.length, stock:stock, out:out, open:open};
 }
+
 function renderStats() {
   var s = getStats();
-  document.getElementById('kTotal').textContent = s.total;
-  document.getElementById('kStock').textContent = s.stock;
-  document.getElementById('kOut').textContent = s.order;
-  document.getElementById('kOpen').textContent = s.open;
-  var done = s.stock + s.order;
-  var pct = Math.round(done / s.total * 100);
-  document.getElementById('kStockPct').textContent = pct + '% done';
-  document.getElementById('ppct').textContent = pct + '%';
-  document.getElementById('pfill').style.width = pct + '%';
+  var el;
+  el = document.getElementById('kStock'); if(el) el.textContent = s.stock;
+  el = document.getElementById('kOut');   if(el) el.textContent = s.out;
+  el = document.getElementById('kOpen');  if(el) el.textContent = s.open;
+  var pct = Math.round((s.stock + s.out) / s.total * 100);
+  el = document.getElementById('ppct');   if(el) el.textContent = pct + '%';
+  el = document.getElementById('pfill');  if(el) el.style.width = pct + '%';
 }
+
 function escHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
 function renderBrands() {
   var brands = {};
   for (var i=0; i<MASTER.length; i++) {
@@ -330,32 +332,45 @@ function renderBrands() {
   var keys = Object.keys(brands).filter(function(k){ return brands[k].total>=5; });
   keys.sort(function(a,b){ return brands[b].total - brands[a].total; });
   if (keys.length>32) keys=keys.slice(0,32);
-  document.getElementById('bCount').textContent = keys.length + ' brands';
+  var el = document.getElementById('bCount'); if(el) el.textContent = keys.length + ' brands';
   var html = '';
   for (var i=0; i<keys.length; i++) {
     var k=keys[i], v=brands[k], pct=Math.round(v.done/v.total*100), done=v.done===v.total;
-    html += '<button class="bchip'+(done?' done':'')+'" onclick="filterBrand('+JSON.stringify(k)+')">' +
+    html += '<button class="bchip'+(done?' done':'')+'" data-brand="'+i+'">' +
       '<span>'+escHtml(k)+'</span><span class="bp">'+pct+'%</span></button>';
   }
-  document.getElementById('bgrid').innerHTML = html;
+  var host = document.getElementById('bgrid');
+  if (!host) return;
+  host.innerHTML = html;
+  host._brands = keys;
+  host.onclick = function(e) {
+    var btn = e.target.closest('.bchip');
+    if (!btn) return;
+    var idx = parseInt(btn.getAttribute('data-brand'), 10);
+    if (host._brands[idx]) filterBrand(host._brands[idx]);
+  };
 }
+
 function filterBrand(brand) {
   nav('audit');
   document.getElementById('srch').value = brand;
   ST.fSearch = brand; ST.ci = 0; renderAuditPage();
 }
+
 function nav(pg) {
   document.querySelectorAll('.pg').forEach(function(p){ p.classList.remove('on'); });
   document.querySelectorAll('.nb').forEach(function(b){ b.classList.remove('on'); });
   var el=document.getElementById('pg-'+pg); if(el) el.classList.add('on');
   var nb=document.getElementById('nb-'+pg); if(nb) nb.classList.add('on');
-  ST.curPg=pg; document.getElementById('scroll').scrollTop=0;
+  ST.curPg=pg;
+  var sc=document.getElementById('scroll'); if(sc) sc.scrollTop=0;
   if(pg==='overview'){renderStats();renderBrands();}
   if(pg==='audit') renderAuditPage();
   if(pg==='aisle') renderAisle();
   if(pg==='vendor') renderVendor();
   save();
 }
+
 function getFiltered() {
   var q=(ST.fSearch||'').toLowerCase(), st=ST.fStatus||'';
   return MASTER.filter(function(r){
@@ -365,48 +380,65 @@ function getFiltered() {
     return (r.SKU+' '+r.Brand+' '+r.Description+' '+r.Vendor).toLowerCase().indexOf(q)>=0;
   });
 }
+
 function setStFilter(s) {
   ST.fStatus=s;
   document.querySelectorAll('.fp').forEach(function(p){ p.classList.toggle('on', p.getAttribute('data-st')===s); });
   ST.ci=0; renderAuditPage();
 }
-function onSearch() { ST.fSearch=document.getElementById('srch').value; ST.ci=0; renderAuditPage(); }
+
+function onSearch() {
+  ST.fSearch=document.getElementById('srch').value;
+  ST.ci=0; renderAuditPage();
+}
+
 function renderAuditPage() {
   filtered=getFiltered();
   if(ST.ci>=filtered.length) ST.ci=0;
   renderCard();
 }
+
 function renderCard() {
   var r=filtered[ST.ci];
+  var numEl=document.getElementById('acNum');
+  var vendEl=document.getElementById('acVend');
+  var nameEl=document.getElementById('acName');
+  var bStock=document.getElementById('bStock');
+  var bOut=document.getElementById('bOut');
+  var fNotes=document.getElementById('fNotes');
   if(!r){
-    document.getElementById('acNum').textContent='0 / 0';
-    document.getElementById('acVend').textContent='';
-    document.getElementById('acName').textContent='No items match';
-    document.getElementById('bStock').classList.remove('on');
-    document.getElementById('bOut').classList.remove('on');
-    document.getElementById('fNotes').value='';
+    if(numEl) numEl.textContent='0 / 0';
+    if(vendEl) vendEl.textContent='';
+    if(nameEl) nameEl.textContent='No items match filter';
+    if(bStock) bStock.classList.remove('on');
+    if(bOut) bOut.classList.remove('on');
+    if(fNotes) fNotes.value='';
     return;
   }
   var a=af(r.SKU);
-  document.getElementById('acNum').textContent=(ST.ci+1)+' / '+filtered.length;
-  document.getElementById('acVend').textContent=r.Vendor.toUpperCase()+' \u00b7 '+escHtml(r.SKU);
-  document.getElementById('acName').textContent=r.Brand+' \u2014 '+r.Description;
-  document.getElementById('bStock').classList.toggle('on', a.status==='In Stock');
-  document.getElementById('bOut').classList.toggle('on', a.status==='Out of Stock');
-  document.getElementById('fNotes').value=a.notes||'';
+  if(numEl) numEl.textContent=(ST.ci+1)+' / '+filtered.length;
+  if(vendEl) vendEl.textContent=r.Vendor.toUpperCase()+' \u00b7 '+r.SKU;
+  if(nameEl) nameEl.textContent=r.Brand+' \u2014 '+r.Description;
+  if(bStock) bStock.classList.toggle('on', a.status==='In Stock');
+  if(bOut) bOut.classList.toggle('on', a.status==='Out of Stock');
+  if(fNotes) fNotes.value=a.notes||'';
 }
+
 function qs(status) {
   var r=filtered[ST.ci]; if(!r) return;
   var a=af(r.SKU);
-  // Toggle off if already set, otherwise set
   a.status = (a.status===status) ? 'Not Reviewed' : status;
   save(); renderCard(); renderStats(); toast(a.status);
-  // Auto-advance after marking
   if(a.status !== 'Not Reviewed') {
-    setTimeout(function(){ nextCard(); }, 300);
+    setTimeout(function(){ nextCard(); }, 350);
   }
 }
-function sfNotes(val) { var r=filtered[ST.ci]; if(!r) return; af(r.SKU).notes=val; save(); }
+
+function sfNotes(val) {
+  var r=filtered[ST.ci]; if(!r) return;
+  af(r.SKU).notes=val; save();
+}
+
 function nextCard() {
   if(!filtered.length) return;
   ST.ci=(ST.ci<filtered.length-1)?ST.ci+1:0; save(); renderCard();
@@ -416,31 +448,38 @@ function prevCard() {
   ST.ci=(ST.ci>0)?ST.ci-1:filtered.length-1; save(); renderCard();
 }
 
-// AISLE VIEW
+// AISLE
 function locVal(r) { var a=af(r.SKU); return (a.location||r.Location||r.Aisle||'Unassigned').trim()||'Unassigned'; }
+
 function renderAisle() {
   var q=(document.getElementById('aSrch').value||'').toLowerCase();
   var rows=q?MASTER.filter(function(r){
     return (r.SKU+' '+r.Brand+' '+r.Description+' '+locVal(r)).toLowerCase().indexOf(q)>=0;
   }):MASTER;
-  var groups={};
-  rows.forEach(function(r){ var loc=locVal(r); if(!groups[loc]) groups[loc]=[]; groups[loc].push(r); });
-  var order=Object.keys(groups).sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); });
+  var groups={}, order=[];
+  rows.forEach(function(r){
+    var loc=locVal(r);
+    if(!groups[loc]){ groups[loc]=[]; order.push(loc); }
+    groups[loc].push(r);
+  });
+  order.sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); });
   if(!order.length){
-    document.getElementById('aisleHost').innerHTML='<div class="empty"><i class="ti ti-map-pin"></i><p>No items found</p></div>'; return;
+    document.getElementById('aisleHost').innerHTML='<div class="empty"><i class="ti ti-map-pin"></i><p>No items found</p></div>';
+    return;
   }
   var html='';
   for(var li=0;li<order.length;li++){
     var loc=order[li], items=groups[loc], done=0;
     items.forEach(function(r){ if(af(r.SKU).status!=='Not Reviewed') done++; });
     var allDone=(done===items.length);
-    var key='aisle-'+li;
-    var open=ST.aExp[key];
+    var key='ag'+li;
+    var open=!!ST.aExp[key];
     html+='<div class="ag">' +
-      '<div class="ag-hd" onclick="toggleAisle(\''+key+'\',\''+loc.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\')">' +
+      '<div class="ag-hd" data-key="'+key+'">' +
       '<div><div class="ag-title">'+escHtml(loc)+'</div>' +
       '<div class="ag-meta">'+done+'/'+items.length+' checked</div></div>' +
-      '<span class="badge '+(allDone?'bgrn':done?'bamb':'bgry')+'">'+items.length+'</span></div>' +
+      '<span class="badge '+(allDone?'bgrn':done?'bamb':'bgry')+'">'+items.length+'</span>' +
+      '</div>' +
       '<div id="'+key+'" style="display:'+(open?'block':'none')+';margin-top:8px">';
     for(var ii=0;ii<items.length;ii++){
       var r=items[ii], a=af(r.SKU);
@@ -450,30 +489,45 @@ function renderAisle() {
         '<div style="font-size:11px;color:var(--hint);margin-top:2px">'+escHtml(r.SKU)+'</div>' +
         '</div>' +
         '<div class="asku-acts">' +
-        '<button class="aabtn'+(a.status==='In Stock'?' g':'')+'" onclick="qAisle(\''+r.SKU.replace(/'/g,"\\'")+'\')">\u2713 In Stock</button>' +
-        '<button class="aabtn'+(a.status==='Out of Stock'?' r':'')+'" onclick="qAisleOut(\''+r.SKU.replace(/'/g,"\\'")+'\')">Out</button>' +
+        '<button class="aabtn'+(a.status==='In Stock'?' g':'')+'" data-asku="'+escHtml(r.SKU)+'" data-aact="stock">\u2713 In Stock</button>' +
+        '<button class="aabtn'+(a.status==='Out of Stock'?' r':'')+'" data-asku="'+escHtml(r.SKU)+'" data-aact="out">Out</button>' +
         '</div></div>';
     }
     html+='</div></div>';
   }
-  document.getElementById('aisleHost').innerHTML=html;
-}
-function toggleAisle(key, loc) {
-  var el=document.getElementById(key); if(!el) return;
-  var open=(el.style.display!=='none' && el.style.display!=='');
-  el.style.display=open?'none':'block';
-  ST.aExp[key]=!open; save();
-}
-function qAisle(sku) {
-  var a=af(sku); a.status=(a.status==='In Stock'?'Not Reviewed':'In Stock');
-  save(); renderAisle(); renderStats(); toast(a.status);
-}
-function qAisleOut(sku) {
-  var a=af(sku); a.status=(a.status==='Out of Stock'?'Not Reviewed':'Out of Stock');
-  save(); renderAisle(); renderStats(); toast(a.status);
+  var host=document.getElementById('aisleHost');
+  host.innerHTML=html;
+  // Event delegation for all aisle clicks
+  host.onclick=function(e){
+    // Toggle aisle group
+    var hd=e.target.closest('.ag-hd');
+    if(hd){
+      var key=hd.getAttribute('data-key');
+      var el=document.getElementById(key); if(!el) return;
+      var open=(el.style.display==='block');
+      el.style.display=open?'none':'block';
+      ST.aExp[key]=!open; save(); return;
+    }
+    // Aisle quick-status buttons
+    var btn=e.target.closest('.aabtn');
+    if(btn){
+      var sku=btn.getAttribute('data-asku');
+      var act=btn.getAttribute('data-aact');
+      var a=af(sku);
+      if(act==='stock') a.status=(a.status==='In Stock'?'Not Reviewed':'In Stock');
+      else a.status=(a.status==='Out of Stock'?'Not Reviewed':'Out of Stock');
+      save(); renderStats(); toast(a.status);
+      // Just update this row's buttons
+      var row=btn.closest('.asku');
+      var btns=row.querySelectorAll('.aabtn');
+      btns[0].className='aabtn'+(a.status==='In Stock'?' g':'');
+      btns[1].className='aabtn'+(a.status==='Out of Stock'?' r':'');
+      return;
+    }
+  };
 }
 
-// VENDOR VIEW
+// VENDOR
 function renderVendor() {
   var m=ST.month, au=ST.audits[m]||{}, vmap={};
   MASTER.forEach(function(r){
@@ -484,37 +538,56 @@ function renderVendor() {
     else if(a.status==='In Stock') vmap[v].stock++;
     else vmap[v].out++;
   });
-  var vlist=Object.entries(vmap).sort(function(a,b){ return b[1].total-a[1].total; });
-  document.getElementById('vCount').textContent=vlist.length+' vendors';
+  _vendorList=Object.entries(vmap).sort(function(a,b){ return b[1].total-a[1].total; });
+  var el=document.getElementById('vCount'); if(el) el.textContent=_vendorList.length+' vendors';
   var html='';
-  vlist.forEach(function(entry){
-    var v=entry[0], d=entry[1], done=d.total-d.open, pct=Math.round(done/d.total*100);
+  for(var i=0;i<_vendorList.length;i++){
+    var v=_vendorList[i][0], d=_vendorList[i][1];
+    var done=d.total-d.open, pct=Math.round(done/d.total*100);
     html+='<div class="vpc">' +
       '<div class="vp-hd"><div class="vp-name">'+escHtml(v)+'</div><div class="vp-pct">'+pct+'%</div></div>' +
       '<div class="vp-bar"><div class="vp-fill" style="width:'+pct+'%"></div></div>' +
       '<div class="vp-stats">' +
-      '<span style="color:var(--g)">\u2713 '+d.stock+' in stock</span> &nbsp; ' +
-      '<span style="color:var(--red)">\u2717 '+d.out+' out</span> &nbsp; ' +
-      '<span style="color:var(--hint)">\u25cb '+d.open+' left</span>' +
+      '\u2713 '+d.stock+' in stock &nbsp;\u2022&nbsp; ' +
+      '\u2717 '+d.out+' out &nbsp;\u2022&nbsp; ' +
+      '\u25cb '+d.open+' remaining' +
       '</div>' +
-      '<button class="vwbtn" onclick="filterVendor('+JSON.stringify(v)+')">Audit '+escHtml(v)+' \u2192</button>' +
+      '<button class="vwbtn" data-vi="'+i+'">Audit '+escHtml(v)+' \u2192</button>' +
       '</div>';
-  });
-  document.getElementById('vendorList').innerHTML=html;
+  }
+  var host=document.getElementById('vendorList');
+  host.innerHTML=html;
+  host.onclick=function(e){
+    var btn=e.target.closest('.vwbtn');
+    if(!btn) return;
+    var idx=parseInt(btn.getAttribute('data-vi'),10);
+    if(_vendorList[idx]) filterVendor(_vendorList[idx][0]);
+  };
 }
-function filterVendor(v) { nav('audit'); document.getElementById('srch').value=v; ST.fSearch=v; ST.ci=0; renderAuditPage(); }
 
-// SCANNER
-function normCode(v) { return String(v||'').replace(/[^0-9]/g,'').replace(/^0+(?=[0-9])/,''); }
+function filterVendor(v) {
+  nav('audit');
+  document.getElementById('srch').value=v;
+  ST.fSearch=v; ST.ci=0; renderAuditPage();
+}
+
+// SCANNER - drops last digit (check digit)
+function normCode(v) {
+  var s=String(v||'').replace(/[^0-9]/g,'').replace(/^0+(?=[0-9])/,'');
+  return s.length>1 ? s.slice(0,-1) : s;
+}
 function findSku(code) {
   var raw=String(code||'').trim(), n=normCode(raw);
   for(var i=0;i<MASTER.length;i++){ if(String(MASTER[i].SKU)===raw) return MASTER[i]; }
   for(var i=0;i<MASTER.length;i++){ if(normCode(MASTER[i].SKU)===n) return MASTER[i]; }
-  for(var i=0;i<MASTER.length;i++){ var ms=normCode(MASTER[i].SKU); if(ms.endsWith(n)||n.endsWith(ms)) return MASTER[i]; }
+  for(var i=0;i<MASTER.length;i++){
+    var ms=normCode(MASTER[i].SKU);
+    if(ms && n && (ms===n || ms.endsWith(n) || n.endsWith(ms))) return MASTER[i];
+  }
   return null;
 }
 function jumpToSku(code) {
-  var r=findSku(code); if(!r){ toast('No SKU: '+code); return false; }
+  var r=findSku(code); if(!r){ toast('No match: '+code); return false; }
   ST.fSearch=''; ST.fStatus=''; ST.ci=0;
   document.getElementById('srch').value='';
   document.querySelectorAll('.fp').forEach(function(p){ p.classList.toggle('on',p.getAttribute('data-st')===''); });
@@ -561,6 +634,7 @@ function loadQrLib() {
     document.head.appendChild(s);
   });
 }
+
 function updateAll() {
   updateMonthBtn(); renderStats();
   if(ST.curPg==='overview') renderBrands();
@@ -569,18 +643,21 @@ function updateAll() {
   if(ST.curPg==='vendor') renderVendor();
 }
 
-// SWIPE on audit card
+// Swipe gesture + init
 (function(){
   var tx=0, ty=0;
   var ac=document.getElementById('acard');
-  ac.addEventListener('touchstart',function(e){ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
-  ac.addEventListener('touchend',function(e){
-    var dx=e.changedTouches[0].clientX-tx, dy=Math.abs(e.changedTouches[0].clientY-ty);
-    if(dy>60||Math.abs(dx)<50) return;
-    if(dx<0) nextCard(); else prevCard();
-  },{passive:true});
+  if(ac){
+    ac.addEventListener('touchstart',function(e){ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
+    ac.addEventListener('touchend',function(e){
+      var dx=e.changedTouches[0].clientX-tx, dy=Math.abs(e.changedTouches[0].clientY-ty);
+      if(dy>60||Math.abs(dx)<50) return;
+      if(dx<0) nextCard(); else prevCard();
+    },{passive:true});
+  }
   load(); updateMonthBtn(); renderStats(); renderBrands();
   if(ST.curPg && ST.curPg!=='overview') nav(ST.curPg);
+  else renderAuditPage();
 })();
 
 </script>
