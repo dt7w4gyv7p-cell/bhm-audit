@@ -597,17 +597,28 @@ function filterVendor(v) {
 }
 
 // SCANNER - drops last digit (check digit)
-function normCode(v) {
-  var s=String(v||'').replace(/[^0-9]/g,'').replace(/^0+(?=[0-9])/,'');
-  return s.length>1 ? s.slice(0,-1) : s;
+function cleanCode(v) {
+  // Strip non-digits and leading zeros
+  return String(v||'').replace(/[^0-9]/g,'').replace(/^0+(?=[0-9])/,'');
 }
 function findSku(code) {
-  var raw=String(code||'').trim(), n=normCode(raw);
-  for(var i=0;i<MASTER.length;i++){ if(String(MASTER[i].SKU)===raw) return MASTER[i]; }
-  for(var i=0;i<MASTER.length;i++){ if(normCode(MASTER[i].SKU)===n) return MASTER[i]; }
+  var raw = String(code||'').trim();
+  // Drop last digit (check digit) from scanned barcode
+  var stripped = cleanCode(raw);
+  if (stripped.length > 1) stripped = stripped.slice(0,-1);
+  // Try exact match first
   for(var i=0;i<MASTER.length;i++){
-    var ms=normCode(MASTER[i].SKU);
-    if(ms && n && (ms===n || ms.endsWith(n) || n.endsWith(ms))) return MASTER[i];
+    if(String(MASTER[i].SKU)===raw) return MASTER[i];
+  }
+  // Try stripped scan vs cleaned SKU
+  for(var i=0;i<MASTER.length;i++){
+    var skuClean = cleanCode(String(MASTER[i].SKU));
+    if(skuClean===stripped) return MASTER[i];
+  }
+  // Try suffix match
+  for(var i=0;i<MASTER.length;i++){
+    var skuClean = cleanCode(String(MASTER[i].SKU));
+    if(skuClean && stripped && (skuClean.endsWith(stripped) || stripped.endsWith(skuClean))) return MASTER[i];
   }
   return null;
 }
